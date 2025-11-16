@@ -461,3 +461,26 @@ main {
         font-size: 1.1rem;
     }
 }
+
+
+/* Scoped: Queries page action buttons — square corners and tight grouping */
+.queries-actions .btn,
+.queries-actions .btn:first-child,
+.queries-actions .btn:last-child,
+.queries-actions .btn-outline-primary,
+.queries-actions .btn-outline-success,
+.queries-actions .btn-outline-warning,
+.queries-actions .btn-outline-secondary,
+.queries-actions .btn-outline-danger {
+    border-radius: 0 !important;
+}
+
+/* Make sure no unexpected gaps appear between adjacent buttons */
+.queries-actions .btn + .btn {
+    margin-left: -1px; /* collapse borders like a single control */
+}
+
+/* Ensure any nested forms in the action group don't introduce spacing */
+.queries-actions form {
+    margin: 0 !important;
+}

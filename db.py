@@ -6,12 +6,12 @@ import time
 
 DB_PATH = "./data/vinted_notifications.db"
 
+### DB BASE FUNC ###
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
-
 
 def create_or_update_sqlite_db(db_path):
     conn = None
@@ -30,6 +30,7 @@ def create_or_update_sqlite_db(db_path):
         if conn:
             conn.close()
 
+### ITEMS FUNC ###
 
 def is_item_in_db_by_id(id):
     conn = None
@@ -45,7 +46,6 @@ def is_item_in_db_by_id(id):
     finally:
         if conn:
             conn.close()
-
 
 def get_last_timestamp(query_id):
     conn = None
@@ -64,7 +64,6 @@ def get_last_timestamp(query_id):
         if conn:
             conn.close()
 
-
 def update_last_timestamp(query_id, timestamp):
     conn = None
     try:
@@ -79,7 +78,6 @@ def update_last_timestamp(query_id, timestamp):
     finally:
         if conn:
             conn.close()
-
 
 def add_item_to_db(id, title, query_id, price, timestamp, photo_url, currency="EUR"):
     conn = None
@@ -102,6 +100,7 @@ def add_item_to_db(id, title, query_id, price, timestamp, photo_url, currency="E
         if conn:
             conn.close()
 
+### QUERIES FUNC ###
 
 def get_queries():
     conn = None
@@ -116,6 +115,54 @@ def get_queries():
         if conn:
             conn.close()
 
+def get_due_queries(now_ts=None):
+    """
+    Return enabled queries whose (last_run + delay) <= now_ts, or last_run IS NULL.
+    Each row: (id, query, last_run, delay)
+    """
+    conn = None
+    try:
+        if now_ts is None:
+            now_ts = int(time.time())
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, query, last_run, delay
+            FROM queries
+            WHERE enabled = 1
+              AND (last_run IS NULL OR last_run + delay <= ?)
+            """,
+            (now_ts,),
+        )
+        return cursor.fetchall()
+    except Exception:
+        print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def update_last_run(query_id, timestamp=None):
+    """
+    Update the last_run timestamp for a query.
+    """
+    conn = None
+    try:
+        if timestamp is None:
+            timestamp = int(time.time())
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE queries SET last_run = ? WHERE id = ?",
+            (timestamp, query_id),
+        )
+        conn.commit()
+    except Exception:
+        print_exc()
+    finally:
+        if conn:
+            conn.close()
 
 def get_queries_for_user(user_id):
     conn = None
@@ -123,7 +170,8 @@ def get_queries_for_user(user_id):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, query, last_item, query_name FROM queries WHERE owner_id = ?",
+            "SELECT id, query, last_item, query_name, enabled, delay "
+            "FROM queries WHERE owner_id = ?",
             (user_id,),
         )
         return cursor.fetchall()
@@ -134,7 +182,6 @@ def get_queries_for_user(user_id):
         if conn:
             conn.close()
 
-
 def get_queries_with_owner():
     conn = None
     try:
@@ -142,7 +189,12 @@ def get_queries_with_owner():
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT q.id, q.query, q.last_item, q.query_name, u.username as owner_username
+            SELECT q.id,
+                   q.query,
+                   q.last_item,
+                   q.query_name,
+                   u.username AS owner_username,
+                   q.delay
             FROM queries q
             LEFT JOIN users u ON q.owner_id = u.id
             """
@@ -155,6 +207,83 @@ def get_queries_with_owner():
         if conn:
             conn.close()
 
+def get_enabled_queries():
+    """
+    Return only enabled queries as (id, query) or with minimal fields used by the scraper.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, query FROM queries WHERE enabled = 1")
+        return cursor.fetchall()
+    except Exception:
+        print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_all_queries_enabled_map():
+    """Return a dict {query_id: enabled} for all queries."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, enabled FROM queries")
+        rows = cursor.fetchall()
+        return {row[0]: (row[1] == 1) for row in rows}
+    except Exception:
+        print_exc()
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+def is_query_enabled(query_id):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT enabled FROM queries WHERE id = ?", (query_id,))
+        row = cursor.fetchone()
+        return bool(row[0]) if row is not None else False
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def set_query_enabled(query_id, enabled):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE queries SET enabled = ? WHERE id = ?", (1 if enabled else 0, query_id))
+        conn.commit()
+        return cursor.rowcount == 1
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def toggle_query_enabled(query_id):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE queries SET enabled = CASE enabled WHEN 1 THEN 0 ELSE 1 END WHERE id = ?", (query_id,))
+        conn.commit()
+        return cursor.rowcount == 1
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 def is_query_owned_by_user(query_id, user_id):
     conn = None
@@ -173,6 +302,21 @@ def is_query_owned_by_user(query_id, user_id):
         if conn:
             conn.close()
 
+def get_query_owner_id(query_id):
+    """Return owner_id for a query or None."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT owner_id FROM queries WHERE id = ?", (query_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except Exception:
+        print_exc()
+        return None
+    finally:
+        if conn:
+            conn.close()
 
 def is_query_in_db(processed_query, owner_id=None):
     conn = None
@@ -200,30 +344,41 @@ def is_query_in_db(processed_query, owner_id=None):
         if conn:
             conn.close()
 
-
 def add_query_to_db(query, name=None, owner_id=None):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        try:
+            delay_param = get_parameter("query_refresh_delay")
+            delay = int(delay_param) if delay_param is not None else None
+        except Exception:
+            delay = None
+
         if owner_id is not None and name:
             cursor.execute(
-                "INSERT INTO queries (query, last_item, query_name, owner_id) VALUES (?, NULL, ?, ?)",
-                (query, name, owner_id),
+                "INSERT INTO queries (query, last_item, query_name, owner_id, delay) "
+                "VALUES (?, NULL, ?, ?, ?)",
+                (query, name, owner_id, delay),
             )
         elif owner_id is not None:
             cursor.execute(
-                "INSERT INTO queries (query, last_item, owner_id) VALUES (?, NULL, ?)",
-                (query, owner_id),
+                "INSERT INTO queries (query, last_item, owner_id, delay) "
+                "VALUES (?, NULL, ?, ?)",
+                (query, owner_id, delay),
             )
         elif name:
             cursor.execute(
-                "INSERT INTO queries (query, last_item, query_name) VALUES (?, NULL, ?)",
-                (query, name),
+                "INSERT INTO queries (query, last_item, query_name, delay) "
+                "VALUES (?, NULL, ?, ?)",
+                (query, name, delay),
             )
         else:
             cursor.execute(
-                "INSERT INTO queries (query, last_item) VALUES (?, NULL)", (query,)
+                "INSERT INTO queries (query, last_item, delay) "
+                "VALUES (?, NULL, ?)",
+                (query, delay),
             )
         conn.commit()
     except Exception:
@@ -231,7 +386,6 @@ def add_query_to_db(query, name=None, owner_id=None):
     finally:
         if conn:
             conn.close()
-
 
 def get_query_id_by_rowid(rowid):
     conn = None
@@ -251,7 +405,6 @@ def get_query_id_by_rowid(rowid):
         if conn:
             conn.close()
 
-
 def remove_query_from_db(query_number):
     conn = None
     try:
@@ -267,7 +420,6 @@ def remove_query_from_db(query_number):
     finally:
         if conn:
             conn.close()
-
 
 def remove_all_queries_from_db():
     conn = None
@@ -285,27 +437,22 @@ def remove_all_queries_from_db():
         if conn:
             conn.close()
 
-
-def update_query_in_db(query_id, query, name):
-    """
-    Update an existing query in the database.
-
-    Args:
-        query_id (int): The ID of the query to update
-        query (str): The new query URL
-        name (str, optional): The new name for the query
-
-    Returns:
-        bool: True if the query was updated successfully, False otherwise
-    """
+def update_query_in_db(query_id, query, name, delay=None):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE queries SET query=?, query_name=? WHERE id=?",
-            (query, name, query_id),
-        )
+
+        if delay is not None:
+            cursor.execute(
+                "UPDATE queries SET query=?, query_name=?, delay=? WHERE id=?",
+                (query, name, int(delay), query_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE queries SET query=?, query_name=? WHERE id=?",
+                (query, name, query_id),
+            )
         conn.commit()
         return True
     except Exception:
@@ -315,6 +462,7 @@ def update_query_in_db(query_id, query, name):
         if conn:
             conn.close()
 
+### ALLOWLIST FUNC ###
 
 def add_to_allowlist(country):
     conn = None
@@ -328,7 +476,6 @@ def add_to_allowlist(country):
     finally:
         if conn:
             conn.close()
-
 
 def remove_from_allowlist(country):
     conn = None

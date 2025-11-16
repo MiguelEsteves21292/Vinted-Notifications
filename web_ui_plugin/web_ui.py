@@ -397,6 +397,9 @@ def queries():
     else:
         all_queries = db.get_queries_for_user(user_id)
 
+    # Enabled map to avoid per-row queries
+    enabled_map = db.get_all_queries_enabled_map()
+
     formatted_queries = []
     for i, query in enumerate(all_queries):
         parsed_query = urlparse(query[1])
@@ -423,6 +426,8 @@ def queries():
             "query": query[1],
             "display": query_name if query_name else query[1],
             "last_found_item": last_found_item,
+            "enabled": enabled_map.get(query[0], True),
+            "delay": query[5] if len(query) >= 6 else None,
         }
         # Append owner info for admins in all cases
         if is_admin:
@@ -476,6 +481,28 @@ def remove_query(query_id):
     return redirect(url_for("queries"))
 
 
+@app.route("/toggle_query/<int:query_id>", methods=["POST"])
+@login_required
+def toggle_query(query_id):
+    user_id = session.get("user_id")
+    is_admin = db.is_user_admin(user_id)
+    # Permission: admin or owner can toggle
+    if not is_admin:
+        owner_id = db.get_query_owner_id(query_id)
+        if owner_id is None or owner_id != user_id:
+            flash("You don't have permission to modify this query.", "error")
+            return redirect(url_for("queries"))
+
+    success = db.toggle_query_enabled(query_id)
+    if success:
+        state = "enabled" if db.is_query_enabled(query_id) else "disabled"
+        flash(f"Query {state}.", "success")
+    else:
+        flash("Failed to toggle query.", "error")
+
+    return redirect(url_for("queries"))
+
+
 @app.route("/remove_query/all", methods=["POST"])
 @login_required
 def remove_all_queries():
@@ -493,10 +520,24 @@ def remove_all_queries():
 def update_query(query_id):
     query = request.form.get("query")
     query_name = request.form.get("query_name", "").strip()
+    delay_str = request.form.get("delay", "").strip()
+
+    # Parse delay if provided
+    delay = None
+    if delay_str:
+        try:
+            delay = int(delay_str)
+            if delay <= 0:
+                delay = 1
+        except ValueError:
+            delay = None
 
     if query:
         message, success = core.process_update_query(
-            query_id, query, name=query_name if query_name != "" else None
+            query_id,
+            query,
+            name=query_name if query_name != "" else None,
+            delay=delay,
         )
         if success:
             flash("Query updated", "success")
