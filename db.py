@@ -206,7 +206,7 @@ def get_queries_for_user(user_id):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, query, last_item, query_name, enabled, delay "
+            "SELECT id, query, last_item, query_name, enabled, delay, owner_id "
             "FROM queries WHERE owner_id = ?",
             (user_id,),
         )
@@ -230,7 +230,8 @@ def get_queries_with_owner():
                    q.last_item,
                    q.query_name,
                    u.username AS owner_username,
-                   q.delay
+                   q.delay,
+                   q.owner_id
             FROM queries q
             LEFT JOIN users u ON q.owner_id = u.id
             """
@@ -473,24 +474,68 @@ def remove_all_queries_from_db():
         if conn:
             conn.close()
 
-def update_query_in_db(query_id, query, name, delay=None):
+def remove_all_queries_for_user(owner_id):
+    """
+    Remove all queries (and their items) for a specific user.
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        # Delete items for this user's queries
+        cursor.execute(
+            """
+            DELETE FROM items
+            WHERE query_id IN (
+                SELECT id FROM queries WHERE owner_id = ?
+            )
+            """,
+            (owner_id,),
+        )
+        # Delete the user's queries
+        cursor.execute("DELETE FROM queries WHERE owner_id = ?", (owner_id,))
+        conn.commit()
+        return True
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_query_in_db(query_id, query=None, name=None, owner_id=None, delay=None):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
+        set_clauses = []
+        params = []
+
+        if query is not None:
+            set_clauses.append("query = ?")
+            params.append(query)
+        if name is not None:
+            set_clauses.append("query_name = ?")
+            params.append(name)
+        if owner_id is not None:
+            set_clauses.append("owner_id = ?")
+            params.append(owner_id)
         if delay is not None:
-            cursor.execute(
-                "UPDATE queries SET query=?, query_name=?, delay=? WHERE id=?",
-                (query, name, int(delay), query_id),
-            )
-        else:
-            cursor.execute(
-                "UPDATE queries SET query=?, query_name=? WHERE id=?",
-                (query, name, query_id),
-            )
+            set_clauses.append("delay = ?")
+            params.append(delay)
+
+        # Nothing to update
+        if not set_clauses:
+            return False
+
+        sql = f"UPDATE queries SET {', '.join(set_clauses)} WHERE id = ?"
+        params.append(query_id)
+
+        cursor.execute(sql, params)
         conn.commit()
-        return True
+        return cursor.rowcount == 1
     except Exception:
         print_exc()
         return False
@@ -1022,6 +1067,8 @@ def delete_user(user_id):
         # Don't allow deleting the last admin user
         if is_admin and admin_count <= 1:
             return False
+
+        remove_all_queries_for_user(user_id)
 
         cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()

@@ -140,7 +140,7 @@ def process_remove_query(number):
         return "Invalid number.", False
 
 
-def process_update_query(query_id, query, name, delay=None):
+def process_update_query(query_id, query, name, delay=None, owner_id=None):
     """
     Process the update of a query in the database.
 
@@ -179,8 +179,14 @@ def process_update_query(query_id, query, name, delay=None):
         )
     )
 
-    # Update the query in the database (including delay if provided)
-    if db.update_query_in_db(query_id, processed_query, name, delay):
+    # Update the query in the database
+    if db.update_query_in_db(
+            query_id,
+            query=processed_query,
+            name=name,
+            owner_id=owner_id,
+            delay=delay,
+    ):
         return "Query updated.", True
     else:
         return "Failed to update query.", False

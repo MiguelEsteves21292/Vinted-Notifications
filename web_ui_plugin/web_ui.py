@@ -430,6 +430,18 @@ def queries():
             logger.debug(f"Error getting last timestamp for query {query[0]}: {e}")
             last_found_item = "Never"
 
+        if is_admin and show_others:
+            # SELECT: id, query, last_item, query_name, owner_username, delay, owner_id
+            delay = query[5]
+            owner_username = query[4]
+            owner_id_val = query[6]
+        else:
+            # SELECT: id, query, last_item, query_name, enabled, delay, owner_id
+            delay = query[5]
+            owner_id_val = query[6]
+            if is_admin:
+                owner_username = session.get("username", "—")
+
         entry = {
             "id": i + 1,
             "query_id": query[0],
@@ -437,22 +449,27 @@ def queries():
             "display": query_name if query_name else query[1],
             "last_found_item": last_found_item,
             "enabled": enabled_map.get(query[0], True),
-            "delay": query[5] if len(query) >= 6 else None,
+            "delay": delay,
         }
-        # Append owner info for admins in all cases
+
         if is_admin:
-            if len(query) >= 5:
-                entry["owner"] = query[4] if query[4] else "—"
-            else:
-                # When not joined with users, default to current admin username
-                entry["owner"] = session.get("username", "—")
+            entry["owner"] = owner_username if owner_username else "—"
+            entry["owner_id"] = owner_id_val
+
         formatted_queries.append(entry)
+
+    users = []
+    if is_admin:
+        users = [
+            {"id": row[0], "username": row[1]} for row in db.get_all_users()
+        ]
 
     return render_template(
         "queries.html",
         queries=formatted_queries,
         is_admin=is_admin,
         show_others=show_others,
+        users=users,
     )
 
 
@@ -516,11 +533,23 @@ def toggle_query(query_id):
 @app.route("/remove_query/all", methods=["POST"])
 @login_required
 def remove_all_queries():
-    message, success = core.process_remove_query("all")
-    if success:
-        flash("All queries removed", "success")
+    user_id = session.get("user_id")
+    is_admin = db.is_user_admin(user_id)
+
+    if is_admin:
+        # Admin: remove *all* queries, as before
+        message, success = core.process_remove_query("all")
+        if success:
+            flash("All queries removed", "success")
+        else:
+            flash(message, "error")
     else:
-        flash(message, "error")
+        # Non-admin: only remove this user's queries
+        success = db.remove_all_queries_for_user(user_id)
+        if success:
+            flash("All your queries were removed", "success")
+        else:
+            flash("Failed to remove your queries", "error")
 
     return redirect(url_for("queries"))
 
@@ -528,17 +557,34 @@ def remove_all_queries():
 @app.route("/update_query/<int:query_id>", methods=["POST"])
 @login_required
 def update_query(query_id):
+    user_id = session.get("user_id")
+    is_admin = db.is_user_admin(user_id)
+
+    # Permissions: non-admin must own the query
+    if not is_admin and not db.is_query_owned_by_user(query_id, user_id):
+        flash("You don't have permission to edit this query.", "error")
+        return redirect(url_for("queries"))
+
     query = request.form.get("query")
     query_name = request.form.get("query_name", "").strip()
-    delay_str = request.form.get("delay", "").strip()
+    delay_raw = request.form.get("delay")
 
-    # Parse delay if provided
+    # Only admins can change owner
+    owner_id = None
+    if is_admin:
+        owner_raw = request.form.get("owner_id")
+        if owner_raw:
+            try:
+                owner_id = int(owner_raw)
+            except ValueError:
+                owner_id = None
+
     delay = None
-    if delay_str:
+    if delay_raw:
         try:
-            delay = int(delay_str)
+            delay = int(delay_raw)
             if delay <= 0:
-                delay = 1
+                delay = None
         except ValueError:
             delay = None
 
@@ -548,6 +594,7 @@ def update_query(query_id):
             query,
             name=query_name if query_name != "" else None,
             delay=delay,
+            owner_id=owner_id,
         )
         if success:
             flash("Query updated", "success")
