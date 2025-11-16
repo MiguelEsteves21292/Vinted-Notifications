@@ -337,7 +337,8 @@ def clear_item_queue(items_queue, new_items_queue):
     """
     if not items_queue.empty():
         data, query_id = items_queue.get()
-        banwords_str = db.get_parameter("banwords")
+        owner_id = db.get_query_owner_id(query_id)
+        banwords_str = db.get_user_banwords(owner_id)
         for item in reversed(data):
 
             # If already in db, pass

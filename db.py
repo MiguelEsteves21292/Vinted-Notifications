@@ -1079,3 +1079,42 @@ def delete_user(user_id):
     finally:
         if conn:
             conn.close()
+
+
+### BANWORDS FUNC ###
+
+def get_user_banwords(user_id):
+    if user_id is None:
+        return None
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT banwords FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        return row[0] if row and row[0] is not None else None
+    except Exception:
+        print_exc()
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_user_banwords(user_id, banwords):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET banwords = ? WHERE id = ?",
+            (banwords, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
