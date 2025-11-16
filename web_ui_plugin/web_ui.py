@@ -281,8 +281,15 @@ def index():
     # Get parameters
     params = db.get_all_parameters()
 
-    # Get queries
-    queries = db.get_queries()
+    # Determine user and role
+    user_id = session.get("user_id")
+    is_admin = db.is_user_admin(user_id)
+
+    # Get queries: all for admin, only own for non-admin
+    if is_admin:
+        queries = db.get_queries()
+    else:
+        queries = db.get_queries_for_user(user_id)
     formatted_queries = []
     for i, query in enumerate(queries):
         parsed_query = urlparse(query[1])
@@ -314,7 +321,10 @@ def index():
         )
 
     # Get recent items
-    items = db.get_items(limit=10)
+    if is_admin:
+        items = db.get_items(limit=10)
+    else:
+        items = db.get_items_for_owner(user_id, limit=10)
     formatted_items = []
     for item in items:
         formatted_items.append(
