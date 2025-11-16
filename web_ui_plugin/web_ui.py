@@ -373,8 +373,30 @@ def index():
 @app.route("/queries")
 @login_required
 def queries():
-    # Get queries
-    all_queries = db.get_queries()
+    # Determine user privileges
+    user_id = session.get("user_id")
+    is_admin = db.is_user_admin(user_id)
+
+    # Admin-only toggle: show/hide other users' queries
+    show_others = True
+    if is_admin:
+        # Read toggle from query param if present
+        arg_val = request.args.get("show_others")
+        if arg_val is not None:
+            show_others = arg_val in ("1", "true", "True")
+            session["show_other_queries"] = show_others
+        else:
+            # Fallback to session or default True
+            show_others = session.get("show_other_queries", True)
+    else:
+        show_others = False  # irrelevant for non-admins
+
+    # Get queries based on role and toggle
+    if is_admin and show_others:
+        all_queries = db.get_queries_with_owner()
+    else:
+        all_queries = db.get_queries_for_user(user_id)
+
     formatted_queries = []
     for i, query in enumerate(all_queries):
         parsed_query = urlparse(query[1])
@@ -395,17 +417,28 @@ def queries():
             logger.debug(f"Error getting last timestamp for query {query[0]}: {e}")
             last_found_item = "Never"
 
-        formatted_queries.append(
-            {
-                "id": i + 1,
-                "query_id": query[0],
-                "query": query[1],
-                "display": query_name if query_name else query[1],
-                "last_found_item": last_found_item,
-            }
-        )
+        entry = {
+            "id": i + 1,
+            "query_id": query[0],
+            "query": query[1],
+            "display": query_name if query_name else query[1],
+            "last_found_item": last_found_item,
+        }
+        # Append owner info for admins in all cases
+        if is_admin:
+            if len(query) >= 5:
+                entry["owner"] = query[4] if query[4] else "—"
+            else:
+                # When not joined with users, default to current admin username
+                entry["owner"] = session.get("username", "—")
+        formatted_queries.append(entry)
 
-    return render_template("queries.html", queries=formatted_queries)
+    return render_template(
+        "queries.html",
+        queries=formatted_queries,
+        is_admin=is_admin,
+        show_others=show_others,
+    )
 
 
 @app.route("/add_query", methods=["POST"])
@@ -414,8 +447,12 @@ def add_query():
     query = request.form.get("query")
     query_name = request.form.get("query_name", "").strip()
     if query:
+        # Attach current user as owner
+        owner_id = session.get("user_id")
         message, is_new_query = core.process_query(
-            query, name=query_name if query_name != "" else None
+            query,
+            name=query_name if query_name != "" else None,
+            owner_id=owner_id,
         )
         if is_new_query:
             flash(f"Query added: {query}", "success")

@@ -117,16 +117,79 @@ def get_queries():
             conn.close()
 
 
-def is_query_in_db(processed_query):
+def get_queries_for_user(user_id):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # replace spaces in searched_text by % to match any query containing the searched text
-
         cursor.execute(
-            "SELECT COUNT() FROM queries WHERE query = ?", (processed_query,)
+            "SELECT id, query, last_item, query_name FROM queries WHERE owner_id = ?",
+            (user_id,),
         )
+        return cursor.fetchall()
+    except Exception:
+        print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_queries_with_owner():
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT q.id, q.query, q.last_item, q.query_name, u.username as owner_username
+            FROM queries q
+            LEFT JOIN users u ON q.owner_id = u.id
+            """
+        )
+        return cursor.fetchall()
+    except Exception:
+        print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def is_query_owned_by_user(query_id, user_id):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(1) FROM queries WHERE id = ? AND owner_id = ?",
+            (query_id, user_id),
+        )
+        return cursor.fetchone()[0] == 1
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def is_query_in_db(processed_query, owner_id=None):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        # If owner_id is provided, check within that owner's scope to allow same query for different users
+        if owner_id is not None:
+            cursor.execute(
+                "SELECT COUNT() FROM queries WHERE query = ? AND owner_id = ?",
+                (processed_query, owner_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT COUNT() FROM queries WHERE query = ?",
+                (processed_query,),
+            )
         if cursor.fetchone()[0]:
             return True
         return False
@@ -138,12 +201,22 @@ def is_query_in_db(processed_query):
             conn.close()
 
 
-def add_query_to_db(query, name=None):
+def add_query_to_db(query, name=None, owner_id=None):
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        if name:
+        if owner_id is not None and name:
+            cursor.execute(
+                "INSERT INTO queries (query, last_item, query_name, owner_id) VALUES (?, NULL, ?, ?)",
+                (query, name, owner_id),
+            )
+        elif owner_id is not None:
+            cursor.execute(
+                "INSERT INTO queries (query, last_item, owner_id) VALUES (?, NULL, ?)",
+                (query, owner_id),
+            )
+        elif name:
             cursor.execute(
                 "INSERT INTO queries (query, last_item, query_name) VALUES (?, NULL, ?)",
                 (query, name),

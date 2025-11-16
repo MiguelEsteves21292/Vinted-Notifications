@@ -8,7 +8,7 @@ from logger import get_logger
 logger = get_logger(__name__)
 
 
-def process_query(query, name=None):
+def process_query(query, name=None, owner_id=None):
     """
     Process a Vinted query URL by:
     1. Checking if the URL is a brand URL and converting it to standard format if needed
@@ -75,11 +75,11 @@ def process_query(query, name=None):
     )
 
     # Some queries are made with filters only, so we need to check if the search_text is present
-    if db.is_query_in_db(processed_query) is True:
+    if db.is_query_in_db(processed_query, owner_id) is True:
         return "Query already exists.", False
     else:
         # add the query to the db
-        db.add_query_to_db(processed_query, name)
+        db.add_query_to_db(processed_query, name, owner_id)
         return "Query added.", True
 
 

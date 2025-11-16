@@ -58,9 +58,23 @@
 <div class="row">
     <div class="col-md-12">
         <div class="card">
-            <div class="card-header d-flex align-items-center">
-                <i class="bi bi-search me-2 text-info"></i>
-                <h5 class="card-title mb-0">Current Queries</h5>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-search me-2 text-info"></i>
+                    <h5 class="card-title mb-0">Current Queries</h5>
+                </div>
+                {% if is_admin %}
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{{ url_for('queries', show_others=0 if show_others else 1) }}"
+                       class="btn btn-sm btn-outline-secondary">
+                        {% if show_others %}
+                        <i class="bi bi-eye-slash"></i> Hide other users' queries
+                        {% else %}
+                        <i class="bi bi-eye"></i> Show other users' queries
+                        {% endif %}
+                    </a>
+                </div>
+                {% endif %}
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -69,6 +83,7 @@
                         <tr>
                             <th>#</th>
                             <th>Query</th>
+                            {% if is_admin %}<th>Owner</th>{% endif %}
                             <th>Last Found Item</th>
                             <th>Actions</th>
                         </tr>
@@ -78,6 +93,7 @@
                         <tr>
                             <td>{{ query.id }}</td>
                             <td>{{ query.display }}</td>
+                            {% if is_admin %}<td>{{ query.owner }}</td>{% endif %}
                             <td>{{ query.last_found_item }}</td>
                             <td>
                                 <div class="btn-group" role="group">
