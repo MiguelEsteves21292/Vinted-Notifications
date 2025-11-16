@@ -708,11 +708,13 @@ def config():
     params = db.get_all_parameters()
     is_admin = db.is_user_admin(user_id)
     user_banwords = db.get_user_banwords(user_id) or ""
+    user_telegram_chat_id = db.get_user_telegram_chat_id(user_id) or ""
     return render_template(
         "config.html",
         params=params,
         is_admin=is_admin,
         user_banwords=user_banwords,
+        user_telegram_chat_id=user_telegram_chat_id,
     )
 
 
@@ -733,6 +735,10 @@ def update_config():
     # All users can update their own banwords
     banwords = request.form.get("banwords", "").strip()
     db.set_user_banwords(user_id, banwords)
+
+    # All users can set their own telegram chat id
+    user_telegram_chat_id = request.form.get("user_telegram_chat_id", "").strip()
+    db.set_user_telegram_chat_id(user_id, user_telegram_chat_id or None)
 
     # Only admins can update other settings
     if is_admin:

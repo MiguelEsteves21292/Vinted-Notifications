@@ -51,8 +51,9 @@ def dispatcher_function(input_queue, rss_queue, telegram_queue):
         while True:
             # Get from input queue
             item = input_queue.get()
+            content, url, text, buy_url, buy_text, owner_id = item
             # Send to RSS queue
-            rss_queue.put(item)
+            rss_queue.put((content, url, text, buy_url, buy_text))
             #
             telegram_queue.put(item)
     except (KeyboardInterrupt, SystemExit):
@@ -84,8 +85,7 @@ def monitor_processes(items_queue, telegram_queue, rss_queue):
     telegram_should_run = db.get_parameter("telegram_process_running") == "True"
     # Check if the telegram token and chat ID are set
     telegram_token = db.get_parameter("telegram_token")
-    telegram_chat_id = db.get_parameter("telegram_chat_id")
-    if not telegram_token or not telegram_chat_id:
+    if not telegram_token:
         telegram_should_run = False
     telegram_is_running = telegram_process is not None and telegram_process.is_alive()
 

@@ -60,10 +60,10 @@ class LeRobot:
 
     ### TELEGRAM SPECIFIC FUNCTIONS ###
 
-    async def send_new_post(self, content, url, text, buy_url=None, buy_text=None):
+    async def send_new_post(self, owner_id, content, url, text, buy_url=None, buy_text=None):
         try:
             async with self.bot:
-                chat_ID = str(db.get_parameter("telegram_chat_id"))
+                chat_ID = db.get_user_telegram_chat_id(owner_id)
                 buttons = [[InlineKeyboardButton(text=text, url=url)]]
                 if buy_url and buy_text:
                     buttons.append([InlineKeyboardButton(text=buy_text, url=buy_url)])
@@ -104,8 +104,8 @@ class LeRobot:
         try:
             while 1:
                 if not self.new_items_queue.empty():
-                    content, url, text, buy_url, buy_text = self.new_items_queue.get()
-                    await self.send_new_post(content, url, text, buy_url, buy_text)
+                    content, url, text, buy_url, buy_text, owner_id = self.new_items_queue.get()
+                    await self.send_new_post(owner_id, content, url, text, buy_url, buy_text)
                 else:
                     await asyncio.sleep(0.1)
                     pass

@@ -80,6 +80,32 @@
                             </div>
                         </div>
                     </div>
+                    <div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center">
+                <i class="bi bi-telegram me-2 text-info"></i>
+                <h5 class="card-title mb-0">My Telegram Notifications</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="user_telegram_chat_id" class="form-label">
+                        Telegram chat ID
+                    </label>
+                    <input type="text"
+                           class="form-control"
+                           id="user_telegram_chat_id"
+                           name="user_telegram_chat_id"
+                           value="{{ user_telegram_chat_id }}">
+                    <small class="form-text text-muted">
+                        Chat ID where <strong>your</strong> Vinted notifications will be sent.
+                        The bot must be able to send messages to that chat.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
                     {% if is_admin %}
                     <div class="row mb-4">
                         <div class="col-md-6">
@@ -116,7 +142,7 @@
                                         <label for="telegram_chat_id" class="form-label required-field">Chat ID</label>
                                         <input type="text" class="form-control" id="telegram_chat_id"
                                                name="telegram_chat_id" value="{{ params.telegram_chat_id }}">
-                                        <small class="form-text text-muted">The chat ID where notifications will be
+                                        <small class="form-text text-muted">The chat ID where system notifications will be
                                             sent</small>
                                         <div class="valid-feedback">Looks good!</div>
                                         <div class="warning-feedback">This chat ID format seems unusual. Please check.</div>

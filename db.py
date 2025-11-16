@@ -1118,3 +1118,38 @@ def set_user_banwords(user_id, banwords):
     finally:
         if conn:
             conn.close()
+
+def get_user_telegram_chat_id(user_id: int) -> str | None:
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_chat_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else None
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_user_telegram_chat_id(user_id: int, chat_id: str | None) -> None:
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET telegram_chat_id = ? WHERE id = ?",
+            (chat_id, user_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
