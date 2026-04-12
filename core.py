@@ -287,6 +287,10 @@ def process_items(queue):
         None
     """
 
+    # Check if scraper is paused
+    if db.get_parameter("scraper_paused") == "True":
+        return
+
     all_queries = db.get_queries()
 
     # Initialize Vinted

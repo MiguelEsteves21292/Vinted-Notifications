@@ -54,6 +54,9 @@ class LeRobot:
             self.app.add_handler(CommandHandler("add_country", self.add_country))
             self.app.add_handler(CommandHandler("remove_country", self.remove_country))
             self.app.add_handler(CommandHandler("allowlist", self.allowlist))
+            # Pause/Resume handlers
+            self.app.add_handler(CommandHandler("pause", self.pause))
+            self.app.add_handler(CommandHandler("resume", self.resume))
 
             # TODO : Help command
 
@@ -302,6 +305,22 @@ class LeRobot:
         except Exception as e:
             logger.error(f"Error checking telegram queue: {str(e)}", exc_info=True)
 
+    ### PAUSE / RESUME ###
+
+    async def pause(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            db.set_parameter("scraper_paused", "True")
+            await update.message.reply_text("Scraper paused.")
+        except Exception as e:
+            logger.error(f"Error pausing scraper: {str(e)}", exc_info=True)
+
+    async def resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            db.set_parameter("scraper_paused", "False")
+            await update.message.reply_text("Scraper resumed.")
+        except Exception as e:
+            logger.error(f"Error resuming scraper: {str(e)}", exc_info=True)
+
     async def set_commands(self, context: ContextTypes.DEFAULT_TYPE):
         try:
             await self.bot.set_my_commands(
@@ -314,6 +333,8 @@ class LeRobot:
                     ("add_country", "Add a country to the allowlist"),
                     ("remove_country", "Remove a country from the allowlist"),
                     ("allowlist", "List all countries in the allowlist"),
+                    ("pause", "Pause the scraper"),
+                    ("resume", "Resume the scraper"),
                 ]
             )
             logger.info("Bot commands set successfully")

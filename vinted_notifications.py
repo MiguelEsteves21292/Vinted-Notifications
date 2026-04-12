@@ -215,6 +215,15 @@ if __name__ == "__main__":
         else:
             break
 
+    # Ensure scraper_paused parameter exists and reset to False on startup
+    if db.get_parameter("scraper_paused") is None:
+        conn = __import__("sqlite3").connect("./data/vinted_notifications.db")
+        conn.execute("INSERT INTO parameters (key, value) VALUES ('scraper_paused', 'False')")
+        conn.commit()
+        conn.close()
+    else:
+        db.set_parameter("scraper_paused", "False")
+
     # Plugin checker
     plugin_checker()
 
