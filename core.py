@@ -1,4 +1,5 @@
 import db
+import cex
 import requests
 from pyVintedVN import Vinted, requester
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -299,7 +300,7 @@ def process_items(queue):
         all_items = vinted.items.search(query[1], nbr_items=items_per_query)
         # Filter to only include new items. This should reduce the amount of db calls.
         data = [item for item in all_items if item.is_new_item()]
-        queue.put((data, query[0]))
+        queue.put((data, query[0], query[1]))
         logger.info(f"Scraped {len(data)} items for query: {query[1]}")
 
 
@@ -309,8 +310,15 @@ def clear_item_queue(items_queue, new_items_queue):
     This function is scheduled to run frequently.
     """
     if not items_queue.empty():
-        data, query_id = items_queue.get()
+        data, query_id, query_url = items_queue.get()
         banwords_str = db.get_parameter("banwords")
+        # Queries that skip CeX check and send notifications directly
+        skip_cex = "catalog%5B%5D=3576" in query_url
+        # Queries that use model name instead of title for CeX search
+        use_model = "catalog%5B%5D=3661" in query_url
+        is_phones = "catalog%5B%5D=3661" in query_url
+        is_computers = "catalog%5B%5D=3580" in query_url
+        is_tablets = "catalog%5B%5D=3728" in query_url
         for item in reversed(data):
 
             # If already in db, pass
@@ -346,10 +354,65 @@ def clear_item_queue(items_queue, new_items_queue):
                     brand=item.brand_title,
                     image=None if item.photo is None else item.photo,
                 )
-                # add the item to the queue
-                new_items_queue.put((content, item.url, "Open Vinted", None, None))
-                # new_items_queue.put((content, item.url, "Open Vinted", item.buy_url, "Open buy page"))
-                # Add the item to the db
+
+                # Get item details (model + storage) for phones/computers/tablets
+                details = None
+                if is_phones or is_computers or is_tablets:
+                    details = cex.get_vinted_item_details(item.url)
+
+                # Check storage from page details or title
+                storage = details["storage"] if details and details["storage"] else None
+                title_lower = item.title.lower()
+                has_512 = (
+                    (storage and "512" in storage)
+                    or "512" in title_lower
+                )
+                skip_by_storage = (
+                    (is_phones and has_512)
+                    or (is_computers and (has_512 or ("256" in (storage or "") or "256" in title_lower)))
+                    or (is_tablets and (has_512 or ("256" in (storage or "") or "256" in title_lower)))
+                )
+                # Skip CeX for computers with high-end processors
+                processor = details["processor"] if details and details["processor"] else None
+                skip_by_processor = (
+                    is_computers
+                    and processor
+                    and ("AMD Ryzen 7" in processor or "Intel Core i7" in processor)
+                )
+
+                if skip_cex or skip_by_storage or skip_by_processor:
+                    # Send notification directly without CeX check
+                    new_items_queue.put((content, item.url, "Open Vinted", None, None))
+                else:
+                    # Determine search term for CeX
+                    if use_model and details and details["model"]:
+                        # For phones: model + storage number + "gb"
+                        storage_num = ""
+                        if storage:
+                            digits = "".join(c for c in storage if c.isdigit())
+                            if digits:
+                                storage_num = " " + digits + "gb"
+                        search_term = details["model"] + storage_num + ", Livre B"
+                    else:
+                        search_term = item.title + ", Livre B"
+
+                    cex_result = cex.search_cex(search_term) if search_term else None
+                    vinted_price = float(item.price)
+
+                    if cex_result:
+                        cex_cash_price = cex_result["cash_price"]
+                        diff = vinted_price - cex_cash_price
+                        print(f"------------------------------------------------------------")
+                        print(f"[CeX] '{item.title}'")
+                        print(f"       Vinted: {vinted_price}€ | CeX Cash: {cex_cash_price}€ | Diff: {diff:.2f}€")
+                        print(f"------------------------------------------------------------")
+                        # Only notify if CeX pays at least 40€ more than Vinted price
+                        if diff <= -30:
+                            content += f"\n💰 CeX Cash: {cex_cash_price:.2f}€"
+                            content += f"\n📊 Diferença: {diff:.2f}€"
+                            new_items_queue.put((content, item.url, "Open Vinted", None, None))
+
+                # Always add the item to the db to avoid reprocessing
                 db.add_item_to_db(
                     id=item.id,
                     timestamp=item.raw_timestamp,

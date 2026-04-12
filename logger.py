@@ -54,7 +54,8 @@ def configure_root_logger():
 
     # File handler for all logs
     file_handler = RotatingFileHandler(
-        "logs/vinted.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
+        "logs/vinted.log", maxBytes=10 * 1024 * 1024, backupCount=5,  # 10MB
+        encoding="utf-8",
     )
     file_handler.setLevel(logging.INFO)
     file_formatter = logging.Formatter(
