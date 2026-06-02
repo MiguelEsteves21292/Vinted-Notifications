@@ -388,33 +388,48 @@ def clear_item_queue(items_queue, new_items_queue):
                     # Send notification directly without CeX check
                     new_items_queue.put((content, item.url, "Open Vinted", None, None))
                 else:
-                    # Determine search term for CeX
-                    if use_model and details and details["model"]:
-                        # For phones: model + storage number + "gb"
-                        storage_num = ""
+                    # Determine the CeX match.
+                    if is_phones and details and details["model"]:
+                        # Phones: match exactly by brand + model + capacity from
+                        # the listing's parameters (not the free-text title).
+                        capacity = ""
                         if storage:
                             digits = "".join(c for c in storage if c.isdigit())
                             if digits:
-                                storage_num = " " + digits + "gb"
-                        search_term = details["model"] + storage_num + ", Livre B"
+                                capacity = digits + "gb"
+                        brand = item.brand_title or ""
+                        # "Libre B" targets the grade-B (unlocked) catalog entry.
+                        match_term = f"{brand} {details['model']} {capacity} Libre B".strip()
+                        cex_result = cex.match_cex_phone(match_term) if match_term else None
                     else:
-                        search_term = item.title + ", Livre B"
-
-                    cex_result = cex.search_cex(search_term) if search_term else None
+                        # Other categories: closest catalog title to the item title.
+                        match_term = item.title
+                        cex_result = cex.match_cex_catalog(match_term) if match_term else None
                     vinted_price = float(item.price)
 
                     if cex_result:
-                        cex_cash_price = cex_result["cash_price"]
+                        # When CeX won't pay cash (cash_price == 0), estimate the
+                        # cash value as the CeX sell price / 3.
+                        cash_raw = cex_result["cash_price"]
+                        if cash_raw > 0:
+                            cex_cash_price = cash_raw
+                            cash_src = "cash"
+                        else:
+                            cex_cash_price = cex_result["sell_price"] / 3
+                            cash_src = "sell/3"
                         diff = vinted_price - cex_cash_price
                         print(f"------------------------------------------------------------")
-                        print(f"[CeX] '{item.title}'")
-                        print(f"       Vinted: {vinted_price}€ | CeX Cash: {cex_cash_price}€ | Diff: {diff:.2f}€")
+                        print(f"[CeX] '{item.title}' (termo: '{match_term}')")
+                        print(f"       match: '{cex_result['name']}' (score {cex_result['score']:.0f})")
+                        print(f"       Vinted: {vinted_price}€ | CeX Cash ({cash_src}): {cex_cash_price:.2f}€ | Diff: {diff:.2f}€")
                         print(f"------------------------------------------------------------")
-                        # Only notify if CeX pays at least 40€ more than Vinted price
-                        if diff <= -30:
+                        # Notify whenever CeX pays more than the Vinted price (any profit)
+                        if diff < 0:
                             content += f"\n💰 CeX Cash: {cex_cash_price:.2f}€"
                             content += f"\n📊 Diferença: {diff:.2f}€"
                             new_items_queue.put((content, item.url, "Open Vinted", None, None))
+                    else:
+                        print(f"[CeX] '{item.title}' -> sem match no catalogo (termo: '{match_term}')")
 
                 # Always add the item to the db to avoid reprocessing
                 db.add_item_to_db(

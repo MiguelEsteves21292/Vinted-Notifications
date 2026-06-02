@@ -423,6 +423,133 @@ def get_last_found_item():
             conn.close()
 
 
+def upsert_cex_products(rows):
+    """
+    Insert or update a batch of CeX catalog products, deduplicated by box_id.
+
+    Args:
+        rows (list[dict]): each with keys box_id, title, cash_price, sell_price,
+            category_id, category_name, last_seen.
+
+    Returns:
+        int: number of rows written.
+    """
+    if not rows:
+        return 0
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.executemany(
+            "INSERT OR REPLACE INTO cex_catalog "
+            "(box_id, title, cash_price, sell_price, category_id, category_name, last_seen) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    r["box_id"],
+                    r["title"],
+                    r["cash_price"],
+                    r["sell_price"],
+                    r["category_id"],
+                    r["category_name"],
+                    r["last_seen"],
+                )
+                for r in rows
+            ],
+        )
+        conn.commit()
+        return cursor.rowcount
+    except Exception:
+        print_exc()
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_cex_box_ids():
+    """Return the set of box_ids already stored, for resume/dedup."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT box_id FROM cex_catalog")
+        return {row[0] for row in cursor.fetchall()}
+    except Exception:
+        print_exc()
+        return set()
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_cex_category_counts():
+    """Return {category_id: stored_row_count} for resume decisions."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT category_id, COUNT(*) FROM cex_catalog GROUP BY category_id"
+        )
+        return {str(row[0]): row[1] for row in cursor.fetchall()}
+    except Exception:
+        print_exc()
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_cex_category_name_counts():
+    """Return {category_name: stored_row_count} for resume decisions."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT category_name, COUNT(*) FROM cex_catalog GROUP BY category_name"
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+    except Exception:
+        print_exc()
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_cex_catalog_for_matching():
+    """Return [(title, cash_price, sell_price)] for all catalog rows (title matching)."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT title, cash_price, sell_price FROM cex_catalog")
+        return cursor.fetchall()
+    except Exception:
+        print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_cex_catalog_count():
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM cex_catalog")
+        return cursor.fetchone()[0]
+    except Exception:
+        print_exc()
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
 def get_items_per_day():
     conn = None
     try:

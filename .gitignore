@@ -4,3 +4,6 @@ vinted.db
 __pycache__/
 /logs/vinted.log
 /vinted_notifications.db
+/data/
+/.claude/
+cex_sample*.csv
