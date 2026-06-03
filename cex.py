@@ -17,7 +17,7 @@ _MATCH_TOKEN_SETS = None  # list[set[str]] token sets (parallel to _MATCH_ROWS)
 # match must not introduce a qualifier the query lacks (so "iphone 12" never
 # matches "iphone 12 pro" / "pro max"), nor drop one the query requires.
 _VARIANT_TOKENS = {
-    "pro", "max", "mini", "plus", "ultra", "lite", "fe", "neo", "se",
+    "pro", "max", "mini", "plus", "ultra", "lite", "fe", "neo", "se", "air",
 }
 
 CEX_SEARCH_URL = "https://search.webuy.io/1/indexes/prod_cex_pt/query"
@@ -91,9 +91,10 @@ def get_vinted_item_details(item_url):
         item_url (str): The URL of the Vinted item
 
     Returns:
-        dict: {"model": str or None, "storage": str or None, "processor": str or None}
+        dict: {"model": str or None, "storage": str or None, "processor": str or None,
+               "description": str or None}
     """
-    result = {"model": None, "storage": None, "processor": None}
+    result = {"model": None, "storage": None, "processor": None, "description": None}
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -132,6 +133,20 @@ def get_vinted_item_details(item_url):
             match = re.search(r'"value":"([^"]+)"', unescaped)
             if match:
                 result["processor"] = match.group(1)
+
+        # Extract description from the page meta tags (item description text).
+        # Attribute order varies, so try a few patterns.
+        for pat in (
+            r'property=["\']og:description["\'][^>]*content=["\'](.*?)["\']',
+            r'content=["\'](.*?)["\'][^>]*property=["\']og:description["\']',
+            r'name=["\']description["\'][^>]*content=["\'](.*?)["\']',
+        ):
+            m = re.search(pat, text, re.IGNORECASE | re.DOTALL)
+            if m and m.group(1).strip():
+                import html
+
+                result["description"] = html.unescape(m.group(1)).strip()
+                break
 
         return result
     except Exception as e:
@@ -260,6 +275,45 @@ def match_cex_phone(query, min_score=60):
         "sell_price": float(sell) if sell is not None else 0.0,
         "score": best_score,
     }
+
+
+def extract_pc_specs(text):
+    """
+    Extract CPU + RAM + storage from a computer listing (title + description),
+    to match CeX's "Brand Model/CPU/RAM/Storage/..." computer titles instead of
+    matching the noisy free-text description (which hits Windows/Office entries).
+
+    Returns a string like "i5-3350p 6gb 300gb" (possibly partial), or "".
+    """
+    t = (text or "").lower()
+    parts = []
+    # CPU: Intel "iX-####<suffix>" (suffix like G7/H/HX/U/K), else Ryzen, else bare "iX".
+    m = re.search(r"\b(i[3579])[\s-]*(\d{3,5}[a-z0-9]{0,3})\b", t)
+    if m:
+        parts.append(f"{m.group(1)}-{m.group(2)}")
+    else:
+        m = re.search(r"\bryzen\s*([3579])\s*(\d{3,4}[a-z]{0,2})?", t)
+        if m:
+            parts.append(("ryzen " + m.group(1) + (m.group(2) or "")).strip())
+        else:
+            m = re.search(r"\b(i[3579])\b", t)
+            if m:
+                parts.append(m.group(1))
+    # RAM: prefer "<n>GB RAM" (number before RAM), then "RAM: <n>GB".
+    ram = None
+    m = re.search(r"(\d{1,3})\s*(?:gb|go|giga)\s*(?:de\s*ram|ram)", t) or re.search(
+        r"ram[^0-9]{0,6}(\d{1,3})\s*(?:gb|go|giga)", t
+    )
+    if m:
+        ram = m.group(1)
+        parts.append(ram + "gb")
+    # Storage: the largest disk (excluding the RAM value).
+    disks = [int(x) for x in re.findall(r"(\d{2,4})\s*(?:gb|go|giga|tb)", t)]
+    if ram and int(ram) in disks:
+        disks.remove(int(ram))
+    if disks:
+        parts.append(str(max(disks)) + "gb")
+    return " ".join(parts)
 
 
 def _cex_query(index, params, max_retries=10):

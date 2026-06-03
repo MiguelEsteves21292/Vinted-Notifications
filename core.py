@@ -388,23 +388,60 @@ def clear_item_queue(items_queue, new_items_queue):
                     # Send notification directly without CeX check
                     new_items_queue.put((content, item.url, "Open Vinted", None, None))
                 else:
-                    # Determine the CeX match.
-                    if is_phones and details and details["model"]:
-                        # Phones: match exactly by brand + model + capacity from
-                        # the listing's parameters (not the free-text title).
-                        capacity = ""
-                        if storage:
-                            digits = "".join(c for c in storage if c.isdigit())
-                            if digits:
-                                capacity = digits + "gb"
-                        brand = item.brand_title or ""
-                        # "Libre B" targets the grade-B (unlocked) catalog entry.
-                        match_term = f"{brand} {details['model']} {capacity} Libre B".strip()
-                        cex_result = cex.match_cex_phone(match_term) if match_term else None
+                    # Capacity (e.g. "64gb") from the listing parameters, shared by
+                    # the phone/tablet exact-match branches.
+                    capacity = ""
+                    if storage:
+                        digits = "".join(c for c in storage if c.isdigit())
+                        if digits:
+                            capacity = digits + "gb"
+                    brand = item.brand_title or ""
+
+                    # Determine the CeX match per category.
+                    if is_phones or is_tablets:
+                        # Phones/tablets: exact match by brand + model + capacity
+                        # (+ grade). Never uses the description.
+                        if details and details["model"]:
+                            grade = "Libre B" if is_phones else "B"
+                            match_term = f"{brand} {details['model']} {capacity} {grade}".strip()
+                            cex_result = cex.match_cex_phone(match_term)
+                        else:
+                            # Model not found in the parameters: fall back to the
+                            # title only (still no description).
+                            match_term = item.title
+                            cex_result = cex.match_cex_catalog(match_term) if match_term else None
                     else:
-                        # Other categories: closest catalog title to the item title.
-                        match_term = item.title
-                        cex_result = cex.match_cex_catalog(match_term) if match_term else None
+                        # Group A: the model is often only in the description, so
+                        # always scrape it and search it too.
+                        if details is None:
+                            details = cex.get_vinted_item_details(item.url)
+                        description = details.get("description") if details else None
+
+                        candidates = []
+                        if is_computers:
+                            # Desktops/laptops: if a CPU is found (in title or
+                            # description), match by extracted specs
+                            # (CPU + RAM + storage) — authoritative, avoids the
+                            # noisy description matching Windows/Office entries.
+                            specs = cex.extract_pc_specs(f"{item.title} {description or ''}")
+                            if specs and specs.startswith(("i3", "i5", "i7", "i9", "ryzen")):
+                                candidates = [specs]
+                        if not candidates:
+                            # Smartwatches, cameras, lenses, VR, PC parts, and PCs
+                            # without detectable specs: best of title-only and
+                            # title+description (description carries the model when
+                            # the title doesn't; best-of avoids description noise
+                            # winning over a good title match).
+                            candidates = [item.title]
+                            if description:
+                                candidates.append(f"{item.title} {description}")
+
+                        match_term = candidates[0]
+                        cex_result = None
+                        for term in candidates:
+                            r = cex.match_cex_catalog(term)
+                            if r and (cex_result is None or r["score"] > cex_result["score"]):
+                                cex_result, match_term = r, term
                     vinted_price = float(item.price)
 
                     if cex_result:
