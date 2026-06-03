@@ -428,13 +428,24 @@ def clear_item_queue(items_queue, new_items_queue):
                                 candidates = [specs]
                         if not candidates:
                             # Smartwatches, cameras, lenses, VR, PC parts, and PCs
-                            # without detectable specs: best of title-only and
-                            # title+description (description carries the model when
-                            # the title doesn't; best-of avoids description noise
-                            # winning over a good title match).
-                            candidates = [item.title]
+                            # without detectable specs: best of title, description
+                            # alone, and title+description. The description often
+                            # carries the model when the title doesn't; trying it
+                            # alone lets it win without title noise diluting it,
+                            # and best-of stops description noise from beating a
+                            # good title match.
+                            candidates = []
+                            # Skip a title made of only generic words (e.g.
+                            # "smartwatch"): it would match any "... Smartwatch"
+                            # entry at score 100 and beat the real model match
+                            # found in the description.
+                            if not cex.is_generic_title(item.title):
+                                candidates.append(item.title)
                             if description:
+                                candidates.append(description)
                                 candidates.append(f"{item.title} {description}")
+                            if not candidates:
+                                candidates = [item.title]
 
                         match_term = candidates[0]
                         cex_result = None

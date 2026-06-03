@@ -100,8 +100,24 @@ def get_vinted_item_details(item_url):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "text/html,application/xhtml+xml",
         }
-        response = requests.get(item_url, headers=headers, timeout=15)
+        # Route through the proxy pool (if configured) — the item page is behind
+        # the same Cloudflare challenge as the search API, so a plain request is
+        # blocked (403) and the description/specs come back empty.
+        proxy_dict = {}
+        try:
+            import proxies
+
+            proxy_dict = proxies.convert_proxy_string_to_dict(proxies.get_random_proxy())
+        except Exception:
+            proxy_dict = {}
+        response = requests.get(
+            item_url, headers=headers, timeout=15, proxies=proxy_dict
+        )
         if response.status_code != 200:
+            logger.warning(
+                f"Item page fetch failed ({response.status_code}) for {item_url}; "
+                f"description/specs unavailable"
+            )
             return result
         text = response.text
 
@@ -152,6 +168,37 @@ def get_vinted_item_details(item_url):
     except Exception as e:
         logger.error(f"Error getting Vinted item details: {e}", exc_info=True)
         return result
+
+
+def _clean_title(s):
+    """Strip CeX internal code prefixes like "*DNU*" or "*USE <sku>*" from a
+    catalog title (cosmetic, for display)."""
+    return re.sub(r"^\s*(?:\*[^*]*\*\s*)+", "", s or "").strip()
+
+
+# Generic category/condition words (PT/ES/FR/EN). A query made up only of these
+# carries no model, so it must not win a match by being a trivial subset
+# (e.g. title "smartwatch" matching any "... Smartwatch" entry at score 100).
+_GENERIC_TOKENS = {
+    "smartwatch", "smartwatches", "watch", "reloj", "relogio", "montre",
+    "smartband", "band", "pulseira", "wearable",
+    "tablet", "tablette", "tableta",
+    "phone", "smartphone", "telemovel", "telefono", "telefone", "movil",
+    "portable", "portatil", "laptop", "notebook", "ordinateur", "ordenador",
+    "pc", "computador", "computer", "desktop", "torre", "sobremesa",
+    "camara", "camera", "appareil", "photo", "foto", "lente", "lens",
+    "objetiva", "objectif", "gps", "vr", "headset", "auriculares",
+    "novo", "nova", "nuevo", "nueva", "usado", "usada", "como", "bom", "boa",
+    "estado", "perfeito", "perfeitas", "condicoes", "condiciones", "neuf",
+    "occasion", "bon", "etat", "muito", "pouco", "uso", "vendo", "vendido",
+}
+
+
+def is_generic_title(text):
+    """True if the text has no model-bearing token (only generic category/
+    condition words), so it shouldn't be used as a match query on its own."""
+    toks = _normalize_title(text).split()
+    return all(t in _GENERIC_TOKENS for t in toks)
 
 
 def _normalize_title(s):
@@ -210,18 +257,24 @@ def match_cex_catalog(title, min_score=65):
     query = _normalize_title(title)
     if not query:
         return None
-    # token_set_ratio is robust to word order and extra/missing tokens.
-    best = process.extractOne(
-        query, _MATCH_NORM_TITLES, scorer=fuzz.token_set_ratio, processor=None
+    # token_set_ratio is robust to word order and extra/missing tokens, but it
+    # scores 100 for any title that merely contains the query (e.g. "i5 8600k"
+    # matches both the standalone CPU and a full PC build). Among equal top
+    # scores, prefer the most exact match (fewest extra tokens).
+    results = process.extract(
+        query, _MATCH_NORM_TITLES, scorer=fuzz.token_set_ratio,
+        processor=None, limit=25,
     )
-    if not best:
+    if not results:
         return None
-    _match_str, score, idx = best
-    if score < min_score:
+    top = results[0][1]
+    if top < min_score:
         return None
+    tied = [r for r in results if r[1] == top]
+    _match_str, score, idx = min(tied, key=lambda r: len(_MATCH_TOKEN_SETS[r[2]]))
     orig_title, cash, sell = _MATCH_ROWS[idx]
     return {
-        "name": orig_title,
+        "name": _clean_title(orig_title),
         "cash_price": float(cash) if cash is not None else 0.0,
         "sell_price": float(sell) if sell is not None else 0.0,
         "score": score,
@@ -254,7 +307,9 @@ def match_cex_phone(query, min_score=60):
     qtokens = set(qnorm.split())
     q_variants = qtokens & _VARIANT_TOKENS
 
-    best_idx, best_score = None, -1
+    # Maximize score, then prefer the most exact match (fewest extra tokens) so
+    # internal-code variants ("*USE ...*") lose to the clean title.
+    best_key, best_idx = None, None
     for i, ctokens in enumerate(_MATCH_TOKEN_SETS):
         # Every query token (brand, model, capacity) must be present...
         if not qtokens <= ctokens:
@@ -263,14 +318,16 @@ def match_cex_phone(query, min_score=60):
         if (ctokens & _VARIANT_TOKENS) - q_variants:
             continue
         score = fuzz.token_set_ratio(qnorm, _MATCH_NORM_TITLES[i])
-        if score > best_score:
-            best_idx, best_score = i, score
+        key = (score, -len(ctokens))
+        if best_key is None or key > best_key:
+            best_key, best_idx = key, i
 
-    if best_idx is None or best_score < min_score:
+    if best_idx is None or best_key[0] < min_score:
         return None
+    best_score = best_key[0]
     orig_title, cash, sell = _MATCH_ROWS[best_idx]
     return {
-        "name": orig_title,
+        "name": _clean_title(orig_title),
         "cash_price": float(cash) if cash is not None else 0.0,
         "sell_price": float(sell) if sell is not None else 0.0,
         "score": best_score,
